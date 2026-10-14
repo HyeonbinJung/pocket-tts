@@ -249,9 +249,10 @@ class TTSModel(nn.Module):
         # Load mimi weights from the config safetensors file with complete mapping for strict loading
 
         if config.mimi.weights_path is not None:
-            if config.flow_lm.weights_path is None:
+            if config.flow_lm.weights_path is None and config.weights_path is None:
                 raise ValueError(
-                    "If you specify mimi.weights_path you should specify flow_lm.weights_path"
+                    "If you specify mimi.weights_path you should specify flow_lm.weights_path "
+                    "or weights_path"
                 )
             logger.info(f"Loading Mimi weights from {config.mimi.weights_path}")
             mimi_state = get_mimi_state_dict(download_if_necessary(config.mimi.weights_path))
@@ -270,6 +271,10 @@ class TTSModel(nn.Module):
                 weights_file = download_if_necessary(config.weights_path_without_voice_cloning)
 
             state_dict = safetensors.torch.load_file(weights_file)
+            if config.mimi.weights_path is not None:
+                # mimi.weights_path, loaded above, replaces the Mimi weights of the bundle.
+                state_dict = {k: v for k, v in state_dict.items() if not k.startswith("mimi.")}
+                state_dict.update({f"mimi.{k}": v for k, v in tts_model.mimi.state_dict().items()})
             tts_model.load_state_dict(state_dict, strict=True)
 
         if config.flow_lm.weights_path is None and config.weights_path is None:

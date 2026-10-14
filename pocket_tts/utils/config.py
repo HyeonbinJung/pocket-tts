@@ -124,6 +124,10 @@ class MimiConfig(StrictModel):
     weights_path: str | None = None
     inner_dim: int | None = None
     outer_dim: int | None = None
+    # Decoder-side SEANet and transformer, when they differ from the encoder's (seanet and
+    # transformer). The decoder side also includes quantizer.output_dimension and outer_dim.
+    decoder_seanet: SEANetConfig | None = None
+    decoder_transformer: MimiTransformerConfig | None = None
 
 
 class Config(StrictModel):

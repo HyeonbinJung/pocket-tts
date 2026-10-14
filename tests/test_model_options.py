@@ -1,5 +1,9 @@
-"""Architecture options of the flow LM, on small randomly initialized models."""
+"""Architecture options, on small randomly initialized models."""
 
+from pathlib import Path
+from typing import TypeVar
+
+import safetensors.torch
 import torch
 
 from pocket_tts.models.flow_lm import FlowLMModel
@@ -9,6 +13,9 @@ from pocket_tts.modules.attention import StreamingMultiheadAttention
 from pocket_tts.modules.rope import RotaryEmbedding
 from pocket_tts.modules.stateful_module import StatefulModule, increment_steps, init_states
 from pocket_tts.utils.config import CONFIGS_DIR, FlowLMConfig, load_config
+from pocket_tts.utils.weights_loading import get_mimi_state_dict
+
+M = TypeVar("M", bound=torch.nn.Module)
 
 
 def build_flow_lm(**overrides: object) -> FlowLMModel:
@@ -27,10 +34,14 @@ def build_flow_lm(**overrides: object) -> FlowLMModel:
     flow_lm = FlowLMModel.from_pydantic_config(
         FlowLMConfig(**config), latent_dim=32, insert_bos_before_voice=True
     )
-    for name, module in flow_lm.named_modules():
+    return stamp(flow_lm).eval()
+
+
+def stamp(model: M) -> M:
+    for name, module in model.named_modules():
         if isinstance(module, StatefulModule):
             module._module_absolute_name = name
-    return flow_lm.eval()
+    return model
 
 
 @torch.no_grad()
@@ -137,3 +148,37 @@ def test_builtin_voice_by_name():
     )
     # The prompt is just the BOS frame.
     assert int(state["transformer.layers.0.self_attn"]["offset"]) == 1
+
+
+@torch.no_grad()
+def test_mimi_decoder_with_its_own_dims(tmp_path: Path):
+    config = load_config(CONFIGS_DIR / "english.yaml").mimi
+    small = config.model_copy(
+        update={
+            "outer_dim": 64,
+            "quantizer": config.quantizer.model_copy(update={"output_dimension": 64}),
+            "decoder_seanet": config.seanet.model_copy(
+                update={"dimension": 64, "n_filters": 8, "kernel_size": 3}
+            ),
+            "decoder_transformer": config.transformer.model_copy(
+                update={
+                    "d_model": 64,
+                    "num_heads": 4,
+                    "num_layers": 1,
+                    "dim_feedforward": 128,
+                    "input_dimension": 64,
+                    "output_dimensions": (64,),
+                }
+            ),
+        }
+    )
+    mimi = stamp(build_mimi(small)).eval()
+    assert mimi.decoder.dimension == 64 and mimi.encoder.dimension == 512
+    latents = torch.randn(1, 3, config.quantizer.dimension)
+    audio = mimi.decode_from_latent(latents, init_states(mimi, 1, 100))
+    assert audio.shape == (1, 1, 3 * mimi.frame_size)
+
+    # A Mimi in this package's layout loads as mimi.weights_path.
+    path = tmp_path / "mimi.safetensors"
+    safetensors.torch.save_file({f"mimi.{k}": v for k, v in mimi.state_dict().items()}, path)
+    build_mimi(small).load_state_dict(get_mimi_state_dict(path), strict=True)
