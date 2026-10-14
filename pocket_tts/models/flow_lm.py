@@ -95,6 +95,7 @@ class FlowLMModel(nn.Module):
         dtype: torch.dtype | None = None,
         insert_bos_before_voice: bool = False,
         flow_type: str = "lsd",
+        z_dim: int | None = None,
     ):
         super().__init__()
         self.flow_type = flow_type
@@ -117,7 +118,8 @@ class FlowLMModel(nn.Module):
         self.input_linear = nn.Linear(self.ldim, dim, bias=False, dtype=dtype)
         self.transformer = transformer
         self.out_norm = nn.LayerNorm(dim, eps=1e-5)
-        self.out_eos = nn.Linear(dim, 1, dtype=dtype)
+        self.z_proj = None if z_dim is None else nn.Linear(dim, z_dim, bias=False, dtype=dtype)
+        self.out_eos = nn.Linear(z_dim or dim, 1, dtype=dtype)
 
     @property
     def device(self) -> str:
@@ -196,6 +198,8 @@ class FlowLMModel(nn.Module):
             transformer_out = self.out_norm(transformer_out)
         # remove the prefix from the model outputs (condition is prepended)
         transformer_out = transformer_out[:, -sequence.shape[1] :]
+        if self.z_proj is not None:
+            transformer_out = self.z_proj(transformer_out)
         return transformer_out
 
     def _sample_next_latent(
@@ -236,7 +240,7 @@ class FlowLMModel(nn.Module):
         cls, config: FlowLMConfig, latent_dim: int, insert_bos_before_voice: bool
     ) -> Self:
         d_model = config.transformer.d_model
-        flow_mlp = SimpleMLPAdaLN.from_pydantic_config(config, latent_dim, d_model)
+        flow_mlp = SimpleMLPAdaLN.from_pydantic_config(config, latent_dim, config.z_dim or d_model)
 
         conditioner = LUTConditioner(
             n_bins=config.lookup_table.n_bins,
@@ -257,4 +261,5 @@ class FlowLMModel(nn.Module):
             dtype=getattr(torch, config.dtype),
             insert_bos_before_voice=insert_bos_before_voice,
             flow_type=config.flow.type,
+            z_dim=config.z_dim,
         )

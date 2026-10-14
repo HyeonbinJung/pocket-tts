@@ -49,6 +49,9 @@ class FlowLMConfig(StrictModel):
     # Nested configurations
     flow: FlowConfig
     transformer: FlowLMTransformerConfig
+    # Width of the backbone output fed to the sampler and EOS heads: a bias-free projection
+    # from d_model when set, the transformer output itself when None.
+    z_dim: int | None = None
 
     # conditioning
     lookup_table: LookupTable
