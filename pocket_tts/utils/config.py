@@ -31,6 +31,10 @@ class FlowLMTransformerConfig(StrictModel):
     d_model: int
     num_heads: int
     num_layers: int
+    # Width of queries and of the attention output; d_model when None.
+    attn_dim: int | None = None
+    # Key/value heads, each shared by num_heads // num_kv_heads query heads; num_heads when None.
+    num_kv_heads: int | None = None
 
 
 class LookupTable(StrictModel):

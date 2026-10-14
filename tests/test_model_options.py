@@ -3,6 +3,8 @@
 import torch
 
 from pocket_tts.models.flow_lm import FlowLMModel
+from pocket_tts.modules.attention import StreamingMultiheadAttention
+from pocket_tts.modules.rope import RotaryEmbedding
 from pocket_tts.modules.stateful_module import StatefulModule, increment_steps, init_states
 from pocket_tts.utils.config import CONFIGS_DIR, FlowLMConfig, load_config
 
@@ -58,3 +60,29 @@ def test_z_dim_defaults_to_no_projection():
     flow_lm = build_flow_lm()
     assert flow_lm.z_proj is None
     assert not any(k.startswith("z_proj") for k in flow_lm.state_dict())
+
+
+def test_grouped_query_attention_matches_repeated_kv_heads():
+    torch.manual_seed(0)
+    rope = RotaryEmbedding()
+    gqa = StreamingMultiheadAttention(64, 4, rope, attn_dim=32, num_kv_heads=2)
+    mha = StreamingMultiheadAttention(64, 4, rope, attn_dim=32)
+    q, k, v = gqa.in_proj.weight.detach().split([32, 16, 16])
+
+    def repeat_heads(w: torch.Tensor) -> torch.Tensor:
+        return w.view(2, 8, 64).repeat_interleave(2, dim=0).reshape(32, 64)
+
+    mha.in_proj.weight.data = torch.cat([q, repeat_heads(k), repeat_heads(v)])
+    mha.out_proj.weight.data = gqa.out_proj.weight.data
+    x = torch.randn(1, 5, 64)
+    torch.testing.assert_close(gqa(x, None), mha(x, None))
+
+
+def test_attn_dim_and_kv_heads_in_the_flow_lm():
+    flow_lm = build_flow_lm(**{"transformer.attn_dim": 32, "transformer.num_kv_heads": 2})
+    weights = flow_lm.state_dict()
+    assert weights["transformer.layers.0.self_attn.in_proj.weight"].shape == (32 + 2 * 16, 64)
+    assert weights["transformer.layers.0.self_attn.out_proj.weight"].shape == (64, 32)
+    state = init_states(flow_lm, batch_size=1, sequence_length=8)
+    assert state["transformer.layers.0.self_attn"]["cache"].shape == (2, 1, 8, 2, 8)
+    assert sample_latents(flow_lm).isfinite().all()

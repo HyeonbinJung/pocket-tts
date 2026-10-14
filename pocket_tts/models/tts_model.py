@@ -469,7 +469,7 @@ class TTSModel(nn.Module):
         for module_name, module_state in model_state.items():
             if "cache" in module_state:
                 cache = module_state["cache"]
-                # KV cache has shape [2, batch_size, current_length, num_heads, dim_per_head]
+                # KV cache has shape [2, batch_size, current_length, num_kv_heads, dim_per_head]
                 current_length = cache.shape[2]
                 if current_length < sequence_length:
                     # Create expanded cache filled with NaN for unused positions
