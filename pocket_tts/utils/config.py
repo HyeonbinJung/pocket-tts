@@ -42,6 +42,8 @@ class LookupTable(StrictModel):
     n_bins: int
     tokenizer: str
     tokenizer_path: str
+    # Low-rank table: rank-wide embeddings and a bias-free projection to dim; full when None.
+    rank: int | None = None
 
 
 # Root configuration

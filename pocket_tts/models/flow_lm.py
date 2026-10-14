@@ -248,6 +248,7 @@ class FlowLMModel(nn.Module):
             dim=config.lookup_table.dim,
             output_dim=d_model,
             tokenizer=config.lookup_table.tokenizer,
+            rank=config.lookup_table.rank,
         )
 
         transformer = StreamingTransformer.from_pydantic_config(config.transformer)

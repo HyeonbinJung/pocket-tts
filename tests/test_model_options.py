@@ -86,3 +86,14 @@ def test_attn_dim_and_kv_heads_in_the_flow_lm():
     state = init_states(flow_lm, batch_size=1, sequence_length=8)
     assert state["transformer.layers.0.self_attn"]["cache"].shape == (2, 1, 8, 2, 8)
     assert sample_latents(flow_lm).isfinite().all()
+
+
+def test_low_rank_text_table():
+    flow_lm = build_flow_lm(**{"lookup_table.rank": 8})
+    conditioner = flow_lm.conditioner
+    assert conditioner.embed.weight.shape == (4001, 8)
+    assert conditioner.proj is not None and conditioner.proj.weight.shape == (64, 8)
+    tokens = conditioner.prepare("Hello world.")
+    expected = conditioner.embed.weight[tokens] @ conditioner.proj.weight.T
+    torch.testing.assert_close(conditioner(tokens), expected)
+    assert sample_latents(flow_lm).isfinite().all()
